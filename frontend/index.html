@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/conversation.css">
+  <link rel="stylesheet" href="css/terminal.css">
+  <link rel="stylesheet" href="vendor/xterm.min.css">
+  <link rel="stylesheet" href="vendor/highlight-dark.min.css">
+</head>
+<body>
+  <div id="app">
+    <nav id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">&#9670;</span>
+          <span class="logo-text">Claude Dashboard</span>
+        </div>
+      </div>
+      <div class="sidebar-search">
+        <input type="text" id="global-search" placeholder="Search conversations..." />
+      </div>
+      <ul class="sidebar-nav">
+        <li><a href="#/" data-page="dashboard" class="nav-link active">
+          <span class="nav-icon">&#9632;</span> Dashboard
+        </a></li>
+        <li><a href="#/settings" data-page="settings" class="nav-link">
+          <span class="nav-icon">&#9881;</span> Settings
+        </a></li>
+      </ul>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-header">
+        <span>Projects</span>
+        <button class="sidebar-icon-btn" id="new-session-btn" title="Open folder...">+</button>
+      </div>
+      <div id="project-tree" class="project-tree"></div>
+      <div class="sidebar-footer">
+        <div class="theme-toggle" id="theme-toggle">
+          <span class="theme-label" id="theme-label">Dark</span>
+          <label class="switch">
+            <input type="checkbox" id="theme-switch">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <span class="version">v1.0.0</span>
+      </div>
+    </nav>
+    <div id="main-area">
+      <div id="tab-bar">
+        <div id="tabs-container"></div>
+      </div>
+      <main id="content">
+        <div id="page-loading" class="loading-container" style="display:none;">
+          <div class="spinner"></div>
+          <p>Loading...</p>
+        </div>
+        <div id="page-content"></div>
+        <div id="terminals-container"></div>
+      </main>
+    </div>
+  </div>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/highlight.min.js"></script>
+  <script src="vendor/xterm.min.js"></script>
+  <script src="vendor/xterm-addon-fit.min.js"></script>
+  <script src="vendor/xterm-addon-web-links.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/components/code-block.js"></script>
+  <script src="js/components/message.js"></script>
+  <script src="js/components/sidebar.js"></script>
+  <script src="js/components/tabs.js"></script>
+  <script src="js/pages/dashboard.js"></script>
+  <script src="js/pages/projects.js"></script>
+  <script src="js/pages/project-detail.js"></script>
+  <script src="js/pages/conversation.js"></script>
+  <script src="js/pages/terminal.js"></script>
+  <script src="js/pages/settings.js"></script>
+  <script src="js/pages/search.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

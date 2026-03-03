@@ -1,0 +1,42 @@
+{
+  "name": "claude-dashboard",
+  "version": "1.0.0",
+  "description": "Claude Code Dashboard — Browse conversations, manage projects, launch CLI sessions",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --mac",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "author": "Kimbert Bartiquel",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.0",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0"
+  },
+  "build": {
+    "appId": "com.kimbert.claude-dashboard",
+    "productName": "Claude Dashboard",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "identity": null
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "backend/**/*",
+      "frontend/**/*"
+    ]
+  }
+}
