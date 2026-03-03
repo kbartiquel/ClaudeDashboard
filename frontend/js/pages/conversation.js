@@ -93,6 +93,17 @@ const ConversationPage = {
           if (val) {
             await API.renameConversation(projectId, sessionId, val);
             document.getElementById('conv-title').textContent = val;
+            // Update sidebar tree instantly
+            const sidebarLink = document.querySelector(
+              `.tree-conversation[href="#/conversation/${encodeURIComponent(projectId)}/${sessionId}"]`
+            );
+            if (sidebarLink) {
+              const textEl = sidebarLink.querySelector('.tree-conv-text');
+              if (textEl) {
+                const label = val.slice(0, 40) + (val.length > 40 ? '...' : '');
+                textEl.textContent = label;
+              }
+            }
           }
           close();
         };
