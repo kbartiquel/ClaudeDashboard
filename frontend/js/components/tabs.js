@@ -326,45 +326,24 @@ const TabManager = {
 
       try {
         const paths = [];
+        const api = window.electronAPI;
 
-        // 1. Check for files with actual paths (Finder, desktop, etc.)
         if (e.dataTransfer.files.length > 0) {
           for (const file of e.dataTransfer.files) {
-            if (file.path) {
-              paths.push(file.path);
-            } else if (file.size > 0) {
-              // File without path (e.g. simulator drag, cross-app) — save to temp
+            // Use Electron webUtils to get the real file path
+            const realPath = api && api.getFilePath ? api.getFilePath(file) : '';
+            if (realPath) {
+              paths.push(realPath);
+            } else if (file.size > 0 && api && api.saveTempFile) {
+              // No real path (e.g. simulator screenshot) — save to temp
               const buf = await file.arrayBuffer();
-              if (window.electronAPI && window.electronAPI.saveTempFile) {
-                const tmpPath = await window.electronAPI.saveTempFile(buf, file.type, file.name);
-                if (tmpPath) paths.push(tmpPath);
-              }
-            }
-          }
-        }
-
-        // 2. Fallback: check dataTransfer items (cross-app drags)
-        if (paths.length === 0 && e.dataTransfer.items) {
-          for (const item of e.dataTransfer.items) {
-            if (item.kind === 'file') {
-              const file = item.getAsFile();
-              if (file) {
-                if (file.path) {
-                  paths.push(file.path);
-                } else if (file.size > 0) {
-                  const buf = await file.arrayBuffer();
-                  if (window.electronAPI && window.electronAPI.saveTempFile) {
-                    const tmpPath = await window.electronAPI.saveTempFile(buf, file.type, file.name);
-                    if (tmpPath) paths.push(tmpPath);
-                  }
-                }
-              }
+              const tmpPath = await api.saveTempFile(buf, file.type, file.name);
+              if (tmpPath) paths.push(tmpPath);
             }
           }
         }
 
         if (paths.length > 0 && tab.termWs && tab.termWs.readyState === WebSocket.OPEN) {
-          // Quote paths that contain spaces
           const quoted = paths.map(p => p.includes(' ') ? `"${p}"` : p);
           tab.termWs.send(JSON.stringify({ type: 'input', data: quoted.join(' ') }));
         }
