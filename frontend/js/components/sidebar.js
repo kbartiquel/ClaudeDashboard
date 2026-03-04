@@ -31,6 +31,9 @@ const Sidebar = {
 
     // Load project tree
     this.loadProjectTree();
+
+    // Load account info
+    this.loadAccount();
   },
 
   setActive(page) {
@@ -129,6 +132,54 @@ const Sidebar = {
       });
 
       container.appendChild(item);
+    }
+  },
+
+  async loadAccount() {
+    const section = document.getElementById('account-section');
+    try {
+      const account = await API.account();
+      this.renderAccount(section, account);
+    } catch {
+      section.innerHTML = '<div class="account-error">Account unavailable</div>';
+    }
+  },
+
+  renderAccount(container, account) {
+    if (!account || !account.loggedIn) {
+      container.innerHTML = `
+        <div class="account-info">
+          <span class="account-email">Not logged in</span>
+          <button class="btn btn-sm account-switch-btn" id="account-switch-btn">Login</button>
+        </div>
+      `;
+    } else {
+      const badgeClass = account.subscriptionType === 'max' ? 'badge-purple'
+        : account.subscriptionType === 'pro' ? 'badge-blue'
+        : 'badge-green';
+      container.innerHTML = `
+        <div class="account-info">
+          <div class="account-details">
+            <span class="account-email" title="${escapeHtml(account.email || '')}">${escapeHtml(account.email || 'Unknown')}</span>
+            <span class="badge account-badge ${badgeClass}">${escapeHtml((account.subscriptionType || 'free').toUpperCase())}</span>
+          </div>
+          <button class="btn btn-sm account-switch-btn" id="account-switch-btn" title="Switch to a different Claude account">Switch</button>
+        </div>
+      `;
+    }
+
+    const switchBtn = document.getElementById('account-switch-btn');
+    if (switchBtn) {
+      switchBtn.addEventListener('click', () => this.switchAccount());
+    }
+  },
+
+  switchAccount() {
+    // Open a terminal tab that runs logout + login
+    // We need a special raw shell terminal, not a claude session
+    const tab = TabManager.openAuthTerminal();
+    if (tab) {
+      tab._onAuthExit = () => this.loadAccount();
     }
   },
 
