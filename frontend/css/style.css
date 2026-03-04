@@ -88,11 +88,92 @@ button, input, select, textarea {
   flex-direction: column;
   flex-shrink: 0;
   -webkit-app-region: drag;
+  position: relative;
+  transition: width 200ms ease;
+  overflow: hidden;
+}
+
+#sidebar.collapsed {
+  width: 0 !important;
+  border-right: none;
+}
+
+/* ---- Sidebar Resize Handle ---- */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  -webkit-app-region: no-drag;
+  transition: background 0.15s;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.active {
+  background: var(--accent);
+}
+
+/* ---- Sidebar Collapse/Expand Buttons ---- */
+.sidebar-collapse-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  transition: all 0.15s;
+}
+
+.sidebar-collapse-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.sidebar-expand-btn {
+  display: none;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  margin-right: 4px;
+  transition: all 0.15s;
+}
+
+.sidebar-expand-btn.visible {
+  display: flex;
+}
+
+.sidebar-expand-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--accent);
 }
 
 .sidebar-header {
   padding: 44px 16px 12px;
   -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .logo {
