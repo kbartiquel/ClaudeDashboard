@@ -18,6 +18,7 @@
           <span class="logo-icon">&#9670;</span>
           <span class="logo-text">Claude Dashboard</span>
         </div>
+        <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="Collapse sidebar">&#9664;</button>
       </div>
       <div class="sidebar-search">
         <input type="text" id="global-search" placeholder="Search conversations..." />
@@ -37,6 +38,7 @@
       </div>
       <div id="project-tree" class="project-tree"></div>
       <div class="sidebar-footer">
+
         <div id="account-section" class="account-section"></div>
         <div class="theme-toggle" id="theme-toggle">
           <span class="theme-label" id="theme-label">Dark</span>
@@ -47,9 +49,11 @@
         </div>
         <span class="version">v1.0.0</span>
       </div>
+      <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
     </nav>
     <div id="main-area">
       <div id="tab-bar">
+        <button class="sidebar-expand-btn" id="sidebar-expand-btn" title="Expand sidebar">&#9776;</button>
         <div id="tabs-container"></div>
       </div>
       <main id="content">
