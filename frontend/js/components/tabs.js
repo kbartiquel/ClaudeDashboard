@@ -139,6 +139,11 @@ const TabManager = {
           <div class="terminal-tab-header">
             <span class="terminal-tab-path">${escapeHtml(tab.cwd)}</span>
             <div class="terminal-tab-status">
+              <span class="terminal-session-id" id="session-id-${tab.id}" style="display:none;">
+                <span class="session-id-label">Session:</span>
+                <span class="session-id-value" id="session-id-val-${tab.id}"></span>
+                <button class="session-id-copy" id="session-id-copy-${tab.id}" title="Copy session ID">&#9112;</button>
+              </span>
               ${syncBtn}
               <span class="dot disconnected" id="dot-${tab.id}"></span>
               <span id="status-${tab.id}">Connecting...</span>
@@ -287,6 +292,8 @@ const TabManager = {
         } else if (msg.type === 'exit') {
           this._setTermStatus(tab, false);
           tab.termInstance.write('\r\n\x1b[33m[Process exited]\x1b[0m\r\n');
+        } else if (msg.type === 'session-id') {
+          this._showSessionId(tab, msg.sessionId);
         }
       } catch {}
     };
@@ -367,6 +374,25 @@ const TabManager = {
     const text = document.getElementById(`status-${tab.id}`);
     if (dot) dot.className = connected ? 'dot' : 'dot disconnected';
     if (text) text.textContent = connected ? 'Connected' : 'Disconnected';
+  },
+
+  _showSessionId(tab, sessionId) {
+    const container = document.getElementById(`session-id-${tab.id}`);
+    const valEl = document.getElementById(`session-id-val-${tab.id}`);
+    const copyBtn = document.getElementById(`session-id-copy-${tab.id}`);
+    if (!container || !valEl) return;
+
+    tab.claudeSessionId = sessionId;
+    valEl.textContent = sessionId.slice(0, 8) + '...';
+    valEl.title = sessionId;
+    container.style.display = 'inline-flex';
+
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(sessionId).then(() => {
+        copyBtn.textContent = '\u2713';
+        setTimeout(() => { copyBtn.innerHTML = '&#9112;'; }, 1500);
+      });
+    });
   },
 
   /** Check if any tabs are open */

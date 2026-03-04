@@ -107,6 +107,45 @@ function createSession(ws, projectPath, resumeSessionId = null) {
 
   activeSessions.set(id, session);
 
+  // Detect Claude session ID for new sessions
+  if (resumeSessionId) {
+    // Already known — send immediately
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'session-id', sessionId: resumeSessionId }));
+    }
+  } else {
+    // New session — scan for newest .jsonl file after Claude starts
+    const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
+    setTimeout(() => {
+      try {
+        // Find matching project dir by checking which encoded dir matches this projectPath
+        const dirs = fs.readdirSync(claudeProjectsDir).filter(d =>
+          fs.statSync(path.join(claudeProjectsDir, d)).isDirectory()
+        );
+        for (const dir of dirs) {
+          const dirPath = path.join(claudeProjectsDir, dir);
+          const jsonlFiles = fs.readdirSync(dirPath)
+            .filter(f => f.endsWith('.jsonl'))
+            .map(f => ({ name: f, mtime: fs.statSync(path.join(dirPath, f)).mtimeMs }))
+            .sort((a, b) => b.mtime - a.mtime);
+          if (jsonlFiles.length > 0) {
+            const newest = jsonlFiles[0];
+            // Check if this file was just created (within last 10s)
+            if (Date.now() - newest.mtime < 10000) {
+              const detectedId = newest.name.replace('.jsonl', '');
+              session.claudeSessionId = detectedId;
+              saveSessionState();
+              if (ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: 'session-id', sessionId: detectedId }));
+              }
+              break;
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+  }
+
   // Pipe pty output to WebSocket
   ptyProcess.onData((data) => {
     if (ws.readyState === 1) { // WebSocket.OPEN
