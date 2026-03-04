@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const http = require('http');
+const { execSync } = require('child_process');
 const WebSocket = require('ws');
 const claudeData = require('./claude-data');
 const config = require('./config');
@@ -134,6 +135,22 @@ function createServer() {
     }
   });
 
+  // Account info (claude auth status)
+  app.get('/api/account', (req, res) => {
+    try {
+      const env = terminal.getShellEnv();
+      const output = execSync('claude auth status --json', {
+        env,
+        timeout: 10000,
+        encoding: 'utf-8',
+      });
+      const account = JSON.parse(output);
+      res.json(account);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to get account info', loggedIn: false });
+    }
+  });
+
   // Terminal sessions list
   app.get('/api/terminal/sessions', (req, res) => {
     res.json(terminal.listSessions());
@@ -165,10 +182,15 @@ function createServer() {
 
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url, 'http://localhost');
-    const projectPath = url.searchParams.get('cwd') || process.env.HOME;
-    const resumeSessionId = url.searchParams.get('resume') || null;
+    const mode = url.searchParams.get('mode');
 
-    terminal.createSession(ws, projectPath, resumeSessionId);
+    if (mode === 'auth') {
+      terminal.createAuthSession(ws);
+    } else {
+      const projectPath = url.searchParams.get('cwd') || process.env.HOME;
+      const resumeSessionId = url.searchParams.get('resume') || null;
+      terminal.createSession(ws, projectPath, resumeSessionId);
+    }
   });
 
   return server;

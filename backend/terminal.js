@@ -189,6 +189,50 @@ function createSession(ws, projectPath, resumeSessionId = null) {
 }
 
 /**
+ * Create a terminal session for auth switching (logout + login)
+ */
+function createAuthSession(ws) {
+  const pty = getPty();
+
+  const ptyProcess = pty.spawn('/bin/zsh', ['-c', 'claude auth logout && claude auth login'], {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 30,
+    cwd: os.homedir(),
+    env: getShellEnv(),
+  });
+
+  ptyProcess.onData((data) => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'output', data }));
+    }
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'exit', code: exitCode }));
+    }
+  });
+
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg.type === 'input') {
+        ptyProcess.write(msg.data);
+      } else if (msg.type === 'resize') {
+        ptyProcess.resize(msg.cols, msg.rows);
+      } else if (msg.type === 'kill') {
+        ptyProcess.kill();
+      }
+    } catch { /* ignore */ }
+  });
+
+  ws.on('close', () => {
+    try { ptyProcess.kill(); } catch { /* ignore */ }
+  });
+}
+
+/**
  * Kill a specific session
  */
 function killSession(id) {
@@ -239,8 +283,10 @@ function listSessions() {
 
 module.exports = {
   createSession,
+  createAuthSession,
   killSession,
   killAll,
   listSessions,
   getResumableSessions,
+  getShellEnv,
 };
