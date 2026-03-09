@@ -4,7 +4,24 @@
 const Sidebar = {
   projects: [],
 
+  _isDragging: false,
+  _sidebarWidth: 240,
+  _collapsed: false,
+
   init() {
+    // Restore sidebar state from localStorage
+    const savedWidth = localStorage.getItem('sidebarWidth');
+    const savedCollapsed = localStorage.getItem('sidebarCollapsed');
+    if (savedWidth) this._sidebarWidth = Math.max(180, Math.min(480, Number(savedWidth)));
+    if (savedCollapsed === 'true') this._collapsed = true;
+    this._applySidebarState(false);
+
+    // Resize handle
+    this._initResize();
+
+    // Collapse / expand buttons
+    this._initCollapseToggle();
+
     // Search
     const searchInput = document.getElementById('global-search');
     searchInput.addEventListener('keydown', (e) => {
@@ -31,6 +48,9 @@ const Sidebar = {
 
     // Load project tree
     this.loadProjectTree();
+
+    // Load account info
+    this.loadAccount();
   },
 
   setActive(page) {
@@ -129,6 +149,130 @@ const Sidebar = {
       });
 
       container.appendChild(item);
+    }
+  },
+
+  async loadAccount() {
+    const section = document.getElementById('account-section');
+    try {
+      const account = await API.account();
+      this.renderAccount(section, account);
+    } catch {
+      section.innerHTML = '<div class="account-error">Account unavailable</div>';
+    }
+  },
+
+  renderAccount(container, account) {
+    if (!account || !account.loggedIn) {
+      container.innerHTML = `
+        <div class="account-info">
+          <span class="account-email">Not logged in</span>
+          <button class="btn btn-sm account-switch-btn" id="account-switch-btn">Login</button>
+        </div>
+      `;
+    } else {
+      const badgeClass = account.subscriptionType === 'max' ? 'badge-purple'
+        : account.subscriptionType === 'pro' ? 'badge-blue'
+        : 'badge-green';
+      container.innerHTML = `
+        <div class="account-info">
+          <div class="account-details">
+            <span class="account-email" title="${escapeHtml(account.email || '')}">${escapeHtml(account.email || 'Unknown')}</span>
+            <span class="badge account-badge ${badgeClass}">${escapeHtml((account.subscriptionType || 'free').toUpperCase())}</span>
+          </div>
+          <button class="btn btn-sm account-switch-btn" id="account-switch-btn" title="Switch to a different Claude account">Switch</button>
+        </div>
+      `;
+    }
+
+    const switchBtn = document.getElementById('account-switch-btn');
+    if (switchBtn) {
+      switchBtn.addEventListener('click', () => this.switchAccount());
+    }
+  },
+
+  switchAccount() {
+    // Open a terminal tab that runs logout + login
+    // We need a special raw shell terminal, not a claude session
+    const tab = TabManager.openAuthTerminal();
+    if (tab) {
+      tab._onAuthExit = () => this.loadAccount();
+    }
+  },
+
+  _initResize() {
+    const handle = document.getElementById('sidebar-resize-handle');
+    const sidebar = document.getElementById('sidebar');
+
+    handle.addEventListener('mousedown', (e) => {
+      if (this._collapsed) return;
+      e.preventDefault();
+      this._isDragging = true;
+      handle.classList.add('active');
+      sidebar.style.transition = 'none';
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      const onMouseMove = (e) => {
+        if (!this._isDragging) return;
+        const newWidth = Math.min(480, Math.max(180, e.clientX));
+        this._sidebarWidth = newWidth;
+        document.documentElement.style.setProperty('--sidebar-width', newWidth + 'px');
+      };
+
+      const onMouseUp = () => {
+        this._isDragging = false;
+        handle.classList.remove('active');
+        sidebar.style.transition = '';
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem('sidebarWidth', String(this._sidebarWidth));
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+  },
+
+  _initCollapseToggle() {
+    const collapseBtn = document.getElementById('sidebar-collapse-btn');
+    const expandBtn = document.getElementById('sidebar-expand-btn');
+
+    collapseBtn.addEventListener('click', () => {
+      this._collapsed = true;
+      this._applySidebarState(true);
+      localStorage.setItem('sidebarCollapsed', 'true');
+    });
+
+    expandBtn.addEventListener('click', () => {
+      this._collapsed = false;
+      this._applySidebarState(true);
+      localStorage.setItem('sidebarCollapsed', 'false');
+    });
+  },
+
+  _applySidebarState(animate) {
+    const sidebar = document.getElementById('sidebar');
+    const expandBtn = document.getElementById('sidebar-expand-btn');
+
+    if (!animate) sidebar.style.transition = 'none';
+
+    document.documentElement.style.setProperty('--sidebar-width', this._sidebarWidth + 'px');
+
+    if (this._collapsed) {
+      sidebar.classList.add('collapsed');
+      expandBtn.classList.add('visible');
+    } else {
+      sidebar.classList.remove('collapsed');
+      expandBtn.classList.remove('visible');
+    }
+
+    if (!animate) {
+      // Force reflow then restore transition
+      sidebar.offsetHeight;
+      sidebar.style.transition = '';
     }
   },
 

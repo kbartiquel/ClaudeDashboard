@@ -46,4 +46,5 @@ const API = {
   killTerminal(id)      { return this.del(`/api/terminal/sessions/${id}`); },
   renameConversation(pid, sid, name) { return this.put(`/api/conversations/${encodeURIComponent(pid)}/${sid}/name`, { name }); },
   syncMemory(pid) { return fetch(`/api/projects/${encodeURIComponent(pid)}/sync-memory`, { method: 'POST' }).then(r => r.json()); },
+  account()         { return this.get('/api/account'); },
 };

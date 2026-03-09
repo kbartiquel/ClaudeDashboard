@@ -191,6 +191,41 @@ function createSession(ws, projectPath, resumeSessionId = null) {
 
   activeSessions.set(id, session);
 
+  // Detect Claude session ID for new sessions
+  if (resumeSessionId) {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'session-id', sessionId: resumeSessionId }));
+    }
+  } else {
+    const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
+    setTimeout(() => {
+      try {
+        const dirs = fs.readdirSync(claudeProjectsDir).filter(d =>
+          fs.statSync(path.join(claudeProjectsDir, d)).isDirectory()
+        );
+        for (const dir of dirs) {
+          const dirPath = path.join(claudeProjectsDir, dir);
+          const jsonlFiles = fs.readdirSync(dirPath)
+            .filter(f => f.endsWith('.jsonl'))
+            .map(f => ({ name: f, mtime: fs.statSync(path.join(dirPath, f)).mtimeMs }))
+            .sort((a, b) => b.mtime - a.mtime);
+          if (jsonlFiles.length > 0) {
+            const newest = jsonlFiles[0];
+            if (Date.now() - newest.mtime < 10000) {
+              const detectedId = newest.name.replace('.jsonl', '');
+              session.claudeSessionId = detectedId;
+              saveSessionState();
+              if (session.ws && session.ws.readyState === 1) {
+                session.ws.send(JSON.stringify({ type: 'session-id', sessionId: detectedId }));
+              }
+              break;
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+  }
+
   // Pipe pty output to WebSocket and into buffer
   ptyProcess.onData((data) => {
     bufferOutput(session, data);
@@ -211,6 +246,50 @@ function createSession(ws, projectPath, resumeSessionId = null) {
   saveSessionState();
 
   return { id, projectPath };
+}
+
+/**
+ * Create a terminal session for auth switching (logout + login)
+ */
+function createAuthSession(ws) {
+  const pty = getPty();
+
+  const ptyProcess = pty.spawn('/bin/zsh', ['-c', 'claude auth logout && claude auth login'], {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 30,
+    cwd: os.homedir(),
+    env: getShellEnv(),
+  });
+
+  ptyProcess.onData((data) => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'output', data }));
+    }
+  });
+
+  ptyProcess.onExit(({ exitCode }) => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'exit', code: exitCode }));
+    }
+  });
+
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg.type === 'input') {
+        ptyProcess.write(msg.data);
+      } else if (msg.type === 'resize') {
+        ptyProcess.resize(msg.cols, msg.rows);
+      } else if (msg.type === 'kill') {
+        ptyProcess.kill();
+      }
+    } catch { /* ignore */ }
+  });
+
+  ws.on('close', () => {
+    try { ptyProcess.kill(); } catch { /* ignore */ }
+  });
 }
 
 /**
@@ -264,8 +343,10 @@ function listSessions() {
 
 module.exports = {
   createSession,
+  createAuthSession,
   killSession,
   killAll,
   listSessions,
   getResumableSessions,
+  getShellEnv,
 };
