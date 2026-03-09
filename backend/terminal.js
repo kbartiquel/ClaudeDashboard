@@ -2,11 +2,14 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
-// Track active sessions: id -> { pty, projectPath, sessionId, createdAt }
+// Track active sessions: id -> { pty, ws, projectPath, claudeSessionId, createdAt, outputBuffer, outputBufferSize }
 const activeSessions = new Map();
 
 // Track sessions that were running when app closed (for resume)
 const SESSION_STATE_FILE = path.join(__dirname, '..', '.terminal-sessions.json');
+
+// Max output buffer size per session (100KB)
+const MAX_BUFFER_SIZE = 100 * 1024;
 
 let ptyModule = null;
 function getPty() {
@@ -32,10 +35,8 @@ function getShellEnv() {
   ];
   const currentPath = process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin';
   const combined = [...extraPaths, ...currentPath.split(':')];
-  // dedupe while preserving order
   const unique = [...new Set(combined)];
   const env = { ...process.env, PATH: unique.join(':'), TERM: 'xterm-256color' };
-  // Remove CLAUDECODE env var so spawned claude doesn't think it's nested
   delete env.CLAUDECODE;
   return env;
 }
@@ -69,7 +70,6 @@ function loadSessionState() {
   try {
     if (fs.existsSync(SESSION_STATE_FILE)) {
       const data = JSON.parse(fs.readFileSync(SESSION_STATE_FILE, 'utf-8'));
-      // Clear the file after loading
       fs.unlinkSync(SESSION_STATE_FILE);
       return data;
     }
@@ -78,9 +78,90 @@ function loadSessionState() {
 }
 
 /**
- * Create a new terminal session with WebSocket bridge
+ * Find an active session by project path
+ */
+function findSessionByPath(projectPath) {
+  for (const [, session] of activeSessions) {
+    if (session.projectPath === projectPath) return session;
+  }
+  return null;
+}
+
+/**
+ * Push data into a session's output buffer, trimming oldest chunks if over limit
+ */
+function bufferOutput(session, data) {
+  session.outputBuffer.push(data);
+  session.outputBufferSize += data.length;
+  while (session.outputBufferSize > MAX_BUFFER_SIZE && session.outputBuffer.length > 1) {
+    const removed = session.outputBuffer.shift();
+    session.outputBufferSize -= removed.length;
+  }
+}
+
+/**
+ * Wire input/close handlers from a WebSocket onto a session
+ */
+function attachWsHandlers(session, ws) {
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg.type === 'input') {
+        session.pty.write(msg.data);
+      } else if (msg.type === 'resize') {
+        session.pty.resize(msg.cols, msg.rows);
+      } else if (msg.type === 'kill') {
+        session.pty.kill();
+        activeSessions.delete(session.id);
+        saveSessionState();
+      }
+    } catch { /* ignore bad messages */ }
+  });
+
+  ws.on('close', () => {
+    // Detach ws but keep pty alive — session stays in activeSessions for reattach
+    session.ws = null;
+    saveSessionState();
+  });
+}
+
+/**
+ * Reattach a new WebSocket to an existing pty session.
+ * Replays buffered output so the terminal is restored.
+ */
+function reattachSession(session, ws) {
+  // Close old ws cleanly if still open
+  if (session.ws && session.ws.readyState === 1 /* OPEN */) {
+    session.ws.removeAllListeners('close');
+    session.ws.removeAllListeners('message');
+    session.ws.close();
+  }
+
+  session.ws = ws;
+
+  // Replay buffered output so the terminal shows current state
+  const buffered = session.outputBuffer.join('');
+  if (buffered) {
+    ws.send(JSON.stringify({ type: 'replay', data: buffered }));
+  }
+
+  attachWsHandlers(session, ws);
+}
+
+/**
+ * Create a new terminal session with WebSocket bridge.
+ * If a session for the same projectPath already exists, reattach to it.
  */
 function createSession(ws, projectPath, resumeSessionId = null) {
+  // Reattach if a live session exists for this path (and not a forced resume of a different session)
+  if (!resumeSessionId) {
+    const existing = findSessionByPath(projectPath);
+    if (existing) {
+      reattachSession(existing, ws);
+      return { id: existing.id, projectPath, reattached: true };
+    }
+  }
+
   const pty = getPty();
   const id = generateId();
 
@@ -98,27 +179,27 @@ function createSession(ws, projectPath, resumeSessionId = null) {
   });
 
   const session = {
+    id,
     pty: ptyProcess,
+    ws,
     projectPath,
     claudeSessionId: resumeSessionId || null,
     createdAt: new Date().toISOString(),
-    ws,
+    outputBuffer: [],
+    outputBufferSize: 0,
   };
 
   activeSessions.set(id, session);
 
   // Detect Claude session ID for new sessions
   if (resumeSessionId) {
-    // Already known — send immediately
     if (ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'session-id', sessionId: resumeSessionId }));
     }
   } else {
-    // New session — scan for newest .jsonl file after Claude starts
     const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
     setTimeout(() => {
       try {
-        // Find matching project dir by checking which encoded dir matches this projectPath
         const dirs = fs.readdirSync(claudeProjectsDir).filter(d =>
           fs.statSync(path.join(claudeProjectsDir, d)).isDirectory()
         );
@@ -130,13 +211,12 @@ function createSession(ws, projectPath, resumeSessionId = null) {
             .sort((a, b) => b.mtime - a.mtime);
           if (jsonlFiles.length > 0) {
             const newest = jsonlFiles[0];
-            // Check if this file was just created (within last 10s)
             if (Date.now() - newest.mtime < 10000) {
               const detectedId = newest.name.replace('.jsonl', '');
               session.claudeSessionId = detectedId;
               saveSessionState();
-              if (ws.readyState === 1) {
-                ws.send(JSON.stringify({ type: 'session-id', sessionId: detectedId }));
+              if (session.ws && session.ws.readyState === 1) {
+                session.ws.send(JSON.stringify({ type: 'session-id', sessionId: detectedId }));
               }
               break;
             }
@@ -146,43 +226,23 @@ function createSession(ws, projectPath, resumeSessionId = null) {
     }, 3000);
   }
 
-  // Pipe pty output to WebSocket
+  // Pipe pty output to WebSocket and into buffer
   ptyProcess.onData((data) => {
-    if (ws.readyState === 1) { // WebSocket.OPEN
-      ws.send(JSON.stringify({ type: 'output', data }));
+    bufferOutput(session, data);
+    if (session.ws && session.ws.readyState === 1) {
+      session.ws.send(JSON.stringify({ type: 'output', data }));
     }
   });
 
   ptyProcess.onExit(({ exitCode }) => {
     activeSessions.delete(id);
     saveSessionState();
-    if (ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'exit', code: exitCode }));
+    if (session.ws && session.ws.readyState === 1) {
+      session.ws.send(JSON.stringify({ type: 'exit', code: exitCode }));
     }
   });
 
-  // Handle incoming data from WebSocket
-  ws.on('message', (raw) => {
-    try {
-      const msg = JSON.parse(raw);
-      if (msg.type === 'input') {
-        ptyProcess.write(msg.data);
-      } else if (msg.type === 'resize') {
-        ptyProcess.resize(msg.cols, msg.rows);
-      } else if (msg.type === 'kill') {
-        ptyProcess.kill();
-        activeSessions.delete(id);
-        saveSessionState();
-      }
-    } catch { /* ignore bad messages */ }
-  });
-
-  ws.on('close', () => {
-    // Don't kill the pty when WS disconnects — track for resume
-    // The pty will die on its own or be killed on app quit
-    saveSessionState();
-  });
-
+  attachWsHandlers(session, ws);
   saveSessionState();
 
   return { id, projectPath };
@@ -250,7 +310,7 @@ function killSession(id) {
  * Kill all active sessions (called on app quit)
  */
 function killAll() {
-  for (const [id, session] of activeSessions) {
+  for (const [, session] of activeSessions) {
     try {
       session.pty.kill();
     } catch { /* ignore */ }
