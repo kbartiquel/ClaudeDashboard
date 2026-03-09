@@ -168,7 +168,32 @@ const ProjectDetailPage = {
       );
       this._renderMemory(result.content);
     } catch (err) {
-      this._showStatus('Failed: ' + err.message, 'red');
+      const isApiKeyError = err.message.includes('API key') || err.message.includes('ANTHROPIC_API_KEY');
+      if (isApiKeyError) {
+        this._showStatusHtml(
+          `No Anthropic API key found. <a href="#" id="go-to-api-key-link" style="color:var(--blue);text-decoration:underline;">Add API Key in Settings</a>`,
+          'red'
+        );
+        setTimeout(() => {
+          const link = document.getElementById('go-to-api-key-link');
+          if (link) {
+            link.addEventListener('click', (e) => {
+              e.preventDefault();
+              window.location.hash = '#/settings';
+              // Focus the input after the settings page renders
+              setTimeout(() => {
+                const input = document.getElementById('api-key-input');
+                if (input) {
+                  input.focus();
+                  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }, 300);
+            });
+          }
+        }, 0);
+      } else {
+        this._showStatus('Failed: ' + err.message, 'red');
+      }
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = '⚡ Generate Memory'; }
     }
@@ -197,5 +222,15 @@ const ProjectDetailPage = {
       clearTimeout(this._statusTimer);
       this._statusTimer = setTimeout(() => { el.style.display = 'none'; }, 5000);
     }
+  },
+
+  _showStatusHtml(html, type) {
+    const el = document.getElementById('status-bar');
+    if (!el) return;
+    const colors = { green: 'var(--green)', red: 'var(--red)', muted: 'var(--text-muted)' };
+    el.style.display = 'block';
+    el.style.color = colors[type] || colors.muted;
+    el.innerHTML = html;
+    clearTimeout(this._statusTimer);
   },
 };
