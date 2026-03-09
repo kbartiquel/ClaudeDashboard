@@ -35,7 +35,7 @@ const TabManager = {
       tabEl.className = 'tab' + (tab.id === this.activeTabId ? ' active' : '');
       tabEl.dataset.tabId = tab.id;
 
-      const icon = tab.type === 'terminal' ? '&#9002;' : '&#9632;';
+      const icon = tab.type === 'terminal' ? '&#9002;' : tab.type === 'terminal-auth' ? '&#9030;' : '&#9632;';
       tabEl.innerHTML = `
         <span class="tab-icon">${icon}</span>
         <span class="tab-title">${escapeHtml(tab.title)}</span>
@@ -100,7 +100,7 @@ const TabManager = {
 
     // Hide all terminal containers
     for (const tab of this.tabs) {
-      if (tab.type === 'terminal' && tab.el) {
+      if ((tab.type === 'terminal' || tab.type === 'terminal-auth') && tab.el) {
         tab.el.style.display = 'none';
       }
     }
@@ -122,7 +122,7 @@ const TabManager = {
       }
       loading.style.display = 'none';
 
-    } else if (tab.type === 'terminal') {
+    } else if (tab.type === 'terminal' || tab.type === 'terminal-auth') {
       // Hide page, show terminals
       pageContent.style.display = 'none';
       terminalsContainer.style.display = 'block';
@@ -131,6 +131,21 @@ const TabManager = {
         // First time — create terminal
         tab.el = document.createElement('div');
         tab.el.className = 'terminal-tab-container';
+
+        if (tab.type === 'terminal-auth') {
+          tab.el.innerHTML = `
+            <div class="terminal-tab-header">
+              <span class="terminal-tab-path">Account Switch</span>
+              <div class="terminal-tab-status">
+                <span class="dot disconnected" id="dot-${tab.id}"></span>
+                <span id="status-${tab.id}">Connecting...</span>
+              </div>
+            </div>
+            <div class="terminal-el" id="term-${tab.id}"></div>
+          `;
+          terminalsContainer.appendChild(tab.el);
+          this._initAuthTermInstance(tab);
+        } else {
         const syncBtn = tab.projectDirName
           ? `<button class="btn btn-sm terminal-sync-btn" id="sync-btn-${tab.id}" title="Sync memory files to project folder">&#8635; Sync Memory</button>
              <span class="terminal-sync-status" id="sync-status-${tab.id}"></span>`
@@ -139,6 +154,11 @@ const TabManager = {
           <div class="terminal-tab-header">
             <span class="terminal-tab-path">${escapeHtml(tab.cwd)}</span>
             <div class="terminal-tab-status">
+              <span class="terminal-session-id" id="session-id-${tab.id}" style="display:none;">
+                <span class="session-id-label">Session:</span>
+                <span class="session-id-value" id="session-id-val-${tab.id}"></span>
+                <button class="session-id-copy" id="session-id-copy-${tab.id}" title="Copy session ID">&#9112;</button>
+              </span>
               ${syncBtn}
               <span class="dot disconnected" id="dot-${tab.id}"></span>
               <span id="status-${tab.id}">Connecting...</span>
@@ -181,6 +201,7 @@ const TabManager = {
         if (reconnectBtn) {
           reconnectBtn.addEventListener('click', () => this._connectTermWS(tab));
         }
+        }
       }
 
       tab.el.style.display = 'flex';
@@ -203,7 +224,7 @@ const TabManager = {
     const tab = this.tabs[idx];
 
     // Cleanup terminal resources — kill the claude process then close
-    if (tab.type === 'terminal') {
+    if (tab.type === 'terminal' || tab.type === 'terminal-auth') {
       if (tab.termWs && tab.termWs.readyState === WebSocket.OPEN) {
         tab.termWs.send(JSON.stringify({ type: 'kill' }));
       }
@@ -373,6 +394,8 @@ const TabManager = {
           // Reattached to existing pty — clear and restore buffered output
           tab.termInstance.clear();
           tab.termInstance.write(msg.data);
+        } else if (msg.type === 'session-id') {
+          this._showSessionId(tab, msg.sessionId);
         } else if (msg.type === 'exit') {
           this._setTermStatus(tab, false);
           tab.termInstance.write('\r\n\x1b[33m[Process exited]\x1b[0m\r\n');
@@ -391,6 +414,121 @@ const TabManager = {
     if (dot) dot.className = connected ? 'dot' : 'dot disconnected';
     if (text) text.textContent = connected ? 'Connected' : 'Disconnected';
     if (reconnectBtn) reconnectBtn.style.display = connected ? 'none' : 'inline-block';
+  },
+
+  _showSessionId(tab, sessionId) {
+    const container = document.getElementById(`session-id-${tab.id}`);
+    const valEl = document.getElementById(`session-id-val-${tab.id}`);
+    const copyBtn = document.getElementById(`session-id-copy-${tab.id}`);
+    if (!container || !valEl) return;
+
+    tab.claudeSessionId = sessionId;
+    valEl.textContent = sessionId.slice(0, 8) + '...';
+    valEl.title = sessionId;
+    container.style.display = 'inline-flex';
+
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(sessionId).then(() => {
+        copyBtn.textContent = '\u2713';
+        setTimeout(() => { copyBtn.innerHTML = '&#9112;'; }, 1500);
+      });
+    });
+  },
+
+  /** Open a special terminal tab for auth switching */
+  openAuthTerminal() {
+    const id = 'tab-' + (++this._idCounter);
+    const tab = {
+      id, title: 'Switch Account', type: 'terminal-auth',
+      termInstance: null, termWs: null, termFitAddon: null, el: null,
+      _onAuthExit: null,
+    };
+    this.tabs.push(tab);
+    this.renderTabs();
+    this.activateTab(id);
+    return tab;
+  },
+
+  /** Initialize auth terminal (raw shell running auth commands) */
+  _initAuthTermInstance(tab) {
+    if (typeof Terminal === 'undefined') return;
+
+    const termEl = document.getElementById(`term-${tab.id}`);
+
+    tab.termInstance = new Terminal({
+      theme: {
+        background: '#0d1117',
+        foreground: '#e6edf3',
+        cursor: '#58a6ff',
+        selectionBackground: '#264f78',
+        black: '#484f58',
+        red: '#ff7b72',
+        green: '#3fb950',
+        yellow: '#d29922',
+        blue: '#58a6ff',
+        magenta: '#bc8cff',
+        cyan: '#39d2c0',
+        white: '#b1bac4',
+      },
+      fontSize: 14,
+      fontFamily: "'SF Mono', 'Menlo', 'Monaco', monospace",
+      cursorBlink: true,
+      scrollback: 5000,
+    });
+
+    tab.termFitAddon = new FitAddon.FitAddon();
+    tab.termInstance.loadAddon(tab.termFitAddon);
+    tab.termInstance.open(termEl);
+    tab.termFitAddon.fit();
+
+    // WebSocket — use special auth mode
+    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${location.host}/ws/terminal?mode=auth`;
+
+    tab.termWs = new WebSocket(wsUrl);
+
+    tab.termWs.onopen = () => {
+      this._setTermStatus(tab, true);
+    };
+
+    tab.termWs.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === 'output') {
+          tab.termInstance.write(msg.data);
+        } else if (msg.type === 'exit') {
+          this._setTermStatus(tab, false);
+          tab.termInstance.write('\r\n\x1b[33m[Auth process completed]\x1b[0m\r\n');
+          // Trigger account refresh callback
+          if (tab._onAuthExit) tab._onAuthExit();
+        }
+      } catch {}
+    };
+
+    tab.termWs.onclose = () => this._setTermStatus(tab, false);
+    tab.termWs.onerror = () => this._setTermStatus(tab, false);
+
+    // Input
+    tab.termInstance.onData((data) => {
+      if (tab.termWs && tab.termWs.readyState === WebSocket.OPEN) {
+        tab.termWs.send(JSON.stringify({ type: 'input', data }));
+      }
+    });
+
+    // Resize
+    tab.termInstance.onResize(({ cols, rows }) => {
+      if (tab.termWs && tab.termWs.readyState === WebSocket.OPEN) {
+        tab.termWs.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    });
+
+    const resizeHandler = () => {
+      if (tab.termFitAddon && tab.el && tab.el.style.display !== 'none') {
+        tab.termFitAddon.fit();
+      }
+    };
+    window.addEventListener('resize', resizeHandler);
+    tab._resizeHandler = resizeHandler;
   },
 
   /** Check if any tabs are open */
