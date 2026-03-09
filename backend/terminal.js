@@ -37,7 +37,13 @@ function getShellEnv() {
   const combined = [...extraPaths, ...currentPath.split(':')];
   const unique = [...new Set(combined)];
   const env = { ...process.env, PATH: unique.join(':'), TERM: 'xterm-256color' };
+  // Remove all Claude-related env vars to prevent "nested session" errors
   delete env.CLAUDECODE;
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  delete env.CLAUDE_CODE_SESSION;
+  Object.keys(env).forEach(k => {
+    if (k.startsWith('CLAUDE_') || k.startsWith('CLAUDECODE')) delete env[k];
+  });
   return env;
 }
 

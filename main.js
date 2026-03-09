@@ -53,12 +53,22 @@ function createWindow() {
 
 ipcMain.handle('open-external-terminal', async (event, cwd, resumeSessionId) => {
   const { exec } = require('child_process');
+  // Strip Claude env vars so the external terminal doesn't detect a nested session
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.CLAUDECODE;
+  delete cleanEnv.CLAUDE_CODE_ENTRYPOINT;
+  delete cleanEnv.CLAUDE_CODE_SESSION;
+  Object.keys(cleanEnv).forEach(k => {
+    if (k.startsWith('CLAUDE_') || k.startsWith('CLAUDECODE')) delete cleanEnv[k];
+  });
+  const execOpts = { env: cleanEnv };
+
   if (resumeSessionId) {
     // Open Terminal.app and run claude --resume with the session ID
     const cmd = `cd "${cwd}" && claude --resume ${resumeSessionId} --dangerously-skip-permissions`;
-    exec(`osascript -e 'tell app "Terminal" to do script "${cmd.replace(/"/g, '\\"')}"' -e 'tell app "Terminal" to activate'`);
+    exec(`osascript -e 'tell app "Terminal" to do script "${cmd.replace(/"/g, '\\"')}"' -e 'tell app "Terminal" to activate'`, execOpts);
   } else {
-    exec(`open -a Terminal "${cwd}"`);
+    exec(`open -a Terminal "${cwd}"`, execOpts);
   }
   return true;
 });

@@ -170,7 +170,7 @@ const TabManager = {
               ${syncBtn}
               <span class="dot disconnected" id="dot-${tab.id}"></span>
               <span id="status-${tab.id}">Connecting...</span>
-              <button class="btn btn-sm" id="reconnect-btn-${tab.id}" style="display:none;margin-left:10px;">Reconnect</button>
+              <button class="btn btn-sm" id="reconnect-btn-${tab.id}" style="display:none;margin-left:6px;">Reconnect</button>
             </div>
           </div>
           <div class="terminal-el" id="term-${tab.id}"></div>
@@ -299,6 +299,9 @@ const TabManager = {
       cursorBlink: true,
       scrollback: 10000,
     });
+
+    // Match terminal container background to profile
+    termEl.style.background = profile.theme.background;
 
     tab.termFitAddon = new FitAddon.FitAddon();
     tab.termInstance.loadAddon(tab.termFitAddon);
