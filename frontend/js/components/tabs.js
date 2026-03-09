@@ -458,6 +458,7 @@ const TabManager = {
     valEl.textContent = sessionId.slice(0, 8) + '...';
     valEl.title = sessionId;
     container.style.display = 'inline-flex';
+    this._saveTabs(); // persist session ID for resume on restart
 
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(sessionId).then(() => {
@@ -567,7 +568,7 @@ const TabManager = {
     ));
   },
 
-  /** Restore tabs from localStorage on app launch */
+  /** Restore tabs from localStorage on app launch — resume previous sessions */
   _restoreTabs() {
     try {
       const saved = JSON.parse(localStorage.getItem('openTabs') || '[]');
@@ -575,7 +576,8 @@ const TabManager = {
       if (saved.length === 0) return;
 
       for (const t of saved) {
-        this.openTerminal(t.title, t.cwd, t.claudeSessionId, t.projectDirName);
+        // Pass claudeSessionId to resume the previous Claude session
+        this.openTerminal(t.title, t.cwd, t.claudeSessionId || null, t.projectDirName);
       }
 
       // Activate the previously active tab
