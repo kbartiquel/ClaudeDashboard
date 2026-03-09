@@ -5,6 +5,8 @@ const TerminalPage = {
   term: null,
   ws: null,
   fitAddon: null,
+  _currentCwd: null,
+  _currentResumeSessionId: null,
 
   async render(container, params) {
     const cwd = params.get('cwd') || '';
@@ -40,6 +42,7 @@ const TerminalPage = {
         <div class="terminal-status">
           <span class="dot disconnected" id="terminal-dot"></span>
           <span id="terminal-status-text">Disconnected</span>
+          <button class="btn btn-sm" id="terminal-reconnect-btn" style="display:none;margin-left:10px;">Reconnect</button>
         </div>
       </div>
     `;
@@ -49,7 +52,6 @@ const TerminalPage = {
       await this.loadProjectSelector();
       await this.loadResumableSessions(container);
 
-      // Browse folder button — opens native macOS folder picker
       const browseBtn = document.getElementById('browse-dir-btn');
       if (browseBtn) {
         browseBtn.addEventListener('click', async () => {
@@ -64,7 +66,8 @@ const TerminalPage = {
       return;
     }
 
-    // Start terminal
+    this._currentCwd = cwd;
+    this._currentResumeSessionId = resumeSessionId;
     this.initTerminal(cwd, resumeSessionId);
   },
 
@@ -122,7 +125,6 @@ const TerminalPage = {
       return;
     }
 
-    // Clean up previous
     this.cleanup();
 
     const termEl = document.getElementById('terminal-el');
@@ -158,44 +160,7 @@ const TerminalPage = {
     this.term.open(termEl);
     this.fitAddon.fit();
 
-    // Connect WebSocket
-    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let wsUrl = `${wsProtocol}//${location.host}/ws/terminal?cwd=${encodeURIComponent(cwd)}`;
-    if (resumeSessionId) {
-      wsUrl += `&resume=${encodeURIComponent(resumeSessionId)}`;
-    }
-
-    this.ws = new WebSocket(wsUrl);
-
-    this.ws.onopen = () => {
-      this.setStatus(true);
-      // Send initial size
-      this.ws.send(JSON.stringify({
-        type: 'resize',
-        cols: this.term.cols,
-        rows: this.term.rows,
-      }));
-    };
-
-    this.ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data);
-        if (msg.type === 'output') {
-          this.term.write(msg.data);
-        } else if (msg.type === 'exit') {
-          this.setStatus(false);
-          this.term.write('\r\n\x1b[33m[Process exited]\x1b[0m\r\n');
-        }
-      } catch { /* ignore */ }
-    };
-
-    this.ws.onclose = () => {
-      this.setStatus(false);
-    };
-
-    this.ws.onerror = () => {
-      this.setStatus(false);
-    };
+    this._connectWS(cwd, resumeSessionId);
 
     // Send input to pty
     this.term.onData((data) => {
@@ -225,17 +190,82 @@ const TerminalPage = {
         window.location.hash = '#/terminal';
       });
     }
+
+    // Reconnect button
+    const reconnectBtn = document.getElementById('terminal-reconnect-btn');
+    if (reconnectBtn) {
+      reconnectBtn.addEventListener('click', () => {
+        this._connectWS(this._currentCwd, this._currentResumeSessionId);
+      });
+    }
+  },
+
+  _connectWS(cwd, resumeSessionId) {
+    // Close any existing ws first
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.close();
+      this.ws = null;
+    }
+
+    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let wsUrl = `${wsProtocol}//${location.host}/ws/terminal?cwd=${encodeURIComponent(cwd)}`;
+    if (resumeSessionId) {
+      wsUrl += `&resume=${encodeURIComponent(resumeSessionId)}`;
+    }
+
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.onopen = () => {
+      this.setStatus(true);
+      this.ws.send(JSON.stringify({
+        type: 'resize',
+        cols: this.term.cols,
+        rows: this.term.rows,
+      }));
+    };
+
+    this.ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === 'output') {
+          this.term.write(msg.data);
+        } else if (msg.type === 'replay') {
+          // Server is reattaching — clear and replay buffered output
+          this.term.clear();
+          this.term.write(msg.data);
+        } else if (msg.type === 'exit') {
+          this.setStatus(false);
+          this.term.write('\r\n\x1b[33m[Process exited]\x1b[0m\r\n');
+        }
+      } catch { /* ignore */ }
+    };
+
+    this.ws.onclose = () => {
+      this.setStatus(false);
+    };
+
+    this.ws.onerror = () => {
+      this.setStatus(false);
+    };
   },
 
   setStatus(connected) {
     const dot = document.getElementById('terminal-dot');
     const text = document.getElementById('terminal-status-text');
+    const reconnectBtn = document.getElementById('terminal-reconnect-btn');
     if (dot) dot.className = connected ? 'dot' : 'dot disconnected';
     if (text) text.textContent = connected ? 'Connected' : 'Disconnected';
+    if (reconnectBtn) reconnectBtn.style.display = connected ? 'none' : 'inline-block';
   },
 
   cleanup() {
+    this._currentCwd = null;
+    this._currentResumeSessionId = null;
     if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
       this.ws.close();
       this.ws = null;
     }
