@@ -129,9 +129,10 @@ function writeClaudeMd(dirName, content) {
  * @param {boolean} merge - If true, merge into existing CLAUDE.md instead of replacing
  */
 async function generateMemory(dirName, projectName, merge = false) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Prefer env var, fall back to saved config key
+  const apiKey = process.env.ANTHROPIC_API_KEY || config.load().anthropicApiKey;
   if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not set. Add it to your environment variables.');
+    throw new Error('No Anthropic API key found. Add one in Settings.');
   }
 
   const sessionText = readProjectSessionsText(dirName);

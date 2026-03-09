@@ -16,6 +16,7 @@ const DEFAULTS = {
   claudeProjectsDir: path.join(os.homedir(), '.claude', 'projects'),
   claudeHistoryFile: path.join(os.homedir(), '.claude', 'history.jsonl'),
   theme: 'dark',
+  anthropicApiKey: '',
 };
 
 function load() {

@@ -28,6 +28,18 @@ const SettingsPage = {
           <input type="text" id="claude-projects-dir" readonly style="opacity:0.7;" />
         </div>
       </div>
+      <div class="section" style="margin-top:32px;">
+        <div class="section-title">Anthropic API Key</div>
+        <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px;">
+          Required for the <strong>Generate Memory</strong> feature. Stored locally in <code>~/.claude-dashboard/config.json</code> and never sent anywhere except the Anthropic API.
+        </p>
+        <div id="api-key-status" style="font-size:13px;margin-bottom:12px;"></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="password" id="api-key-input" placeholder="sk-ant-..." style="flex:1;max-width:420px;" />
+          <button class="btn btn-primary" id="save-api-key-btn">Save</button>
+          <button class="btn btn-danger" id="remove-api-key-btn" style="display:none;">Remove</button>
+        </div>
+      </div>
       <div id="settings-status" style="margin-top:16px;font-size:13px;color:var(--green);display:none;">Settings saved!</div>
     `;
 
@@ -37,6 +49,7 @@ const SettingsPage = {
 
       document.getElementById('claude-projects-dir').value = settings.claudeProjectsDir;
       this.renderDirsList(settings.scanDirectories || []);
+      this.renderApiKey(settings.anthropicApiKey || '');
 
       // Browse folder button for adding scan directories
       document.getElementById('browse-scan-dir-btn').addEventListener('click', async () => {
@@ -90,16 +103,65 @@ const SettingsPage = {
     await this.saveDirs(dirs);
   },
 
+  renderApiKey(currentKey) {
+    const statusEl = document.getElementById('api-key-status');
+    const removeBtn = document.getElementById('remove-api-key-btn');
+    const input = document.getElementById('api-key-input');
+
+    if (currentKey) {
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = `API key saved (${currentKey.slice(0, 10)}…)`;
+      removeBtn.style.display = 'inline-block';
+      input.value = '';
+      input.placeholder = 'Enter new key to replace…';
+    } else {
+      statusEl.style.color = 'var(--text-muted)';
+      statusEl.textContent = 'No API key saved.';
+      removeBtn.style.display = 'none';
+      input.placeholder = 'sk-ant-…';
+    }
+
+    document.getElementById('save-api-key-btn').onclick = async () => {
+      const key = input.value.trim();
+      if (!key) return;
+      try {
+        const updated = await API.updateSettings({ anthropicApiKey: key });
+        this.currentSettings = updated;
+        this.renderApiKey(updated.anthropicApiKey || '');
+        this._flashStatus('API key saved!');
+      } catch (err) {
+        this._flashStatus('Failed: ' + err.message, true);
+      }
+    };
+
+    document.getElementById('remove-api-key-btn').onclick = async () => {
+      try {
+        const updated = await API.updateSettings({ anthropicApiKey: '' });
+        this.currentSettings = updated;
+        this.renderApiKey('');
+        this._flashStatus('API key removed.');
+      } catch (err) {
+        this._flashStatus('Failed: ' + err.message, true);
+      }
+    };
+  },
+
+  _flashStatus(message, isError = false) {
+    const el = document.getElementById('settings-status');
+    el.style.color = isError ? 'var(--red)' : 'var(--green)';
+    el.textContent = message;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 2500);
+  },
+
   async saveDirs(dirs) {
     try {
       const updated = await API.updateSettings({ scanDirectories: dirs });
       this.currentSettings = updated;
       this.renderDirsList(updated.scanDirectories || []);
-      const status = document.getElementById('settings-status');
-      status.style.display = 'block';
-      setTimeout(() => { status.style.display = 'none'; }, 2000);
+      this._flashStatus('Settings saved!');
     } catch (err) {
-      alert('Failed to save: ' + err.message);
+      this._flashStatus('Failed: ' + err.message, true);
     }
   },
 };
