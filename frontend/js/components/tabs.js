@@ -23,6 +23,9 @@ const TabManager = {
         }
       });
     }
+
+    // Restore tabs from previous session
+    this._restoreTabs();
   },
 
   /** Render the tab bar */
@@ -85,6 +88,7 @@ const TabManager = {
     };
     this.tabs.push(tab);
     this.renderTabs();
+    this._saveTabs();
     this.activateTab(id);
     return tab;
   },
@@ -150,10 +154,14 @@ const TabManager = {
           ? `<button class="btn btn-sm terminal-sync-btn" id="sync-btn-${tab.id}" title="Sync memory files to project folder">&#8635; Sync Memory</button>
              <span class="terminal-sync-status" id="sync-status-${tab.id}"></span>`
           : '';
+        const profileOptions = TerminalProfiles.list().map(p =>
+          `<option value="${p.id}" ${p.id === TerminalProfiles.getActiveProfileId() ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+        ).join('');
         tab.el.innerHTML = `
           <div class="terminal-tab-header">
             <span class="terminal-tab-path">${escapeHtml(tab.cwd)}</span>
             <div class="terminal-tab-status">
+              <select class="terminal-profile-select" id="profile-select-${tab.id}" title="Terminal profile">${profileOptions}</select>
               <span class="terminal-session-id" id="session-id-${tab.id}" style="display:none;">
                 <span class="session-id-label">Session:</span>
                 <span class="session-id-value" id="session-id-val-${tab.id}"></span>
@@ -194,6 +202,28 @@ const TabManager = {
           });
         }
 
+        // Profile selector
+        const profileSelect = document.getElementById(`profile-select-${tab.id}`);
+        if (profileSelect) {
+          profileSelect.addEventListener('change', () => {
+            const profileId = profileSelect.value;
+            TerminalProfiles.setActiveProfile(profileId);
+            // Apply to all open terminals
+            for (const t of this.tabs) {
+              if (t.termInstance) {
+                TerminalProfiles.applyProfile(t.termInstance, profileId);
+                // Update background of terminal element
+                const el = document.getElementById(`term-${t.id}`);
+                if (el) el.style.background = TerminalProfiles.profiles[profileId].theme.background;
+              }
+              // Sync all other profile selectors
+              const otherSelect = document.getElementById(`profile-select-${t.id}`);
+              if (otherSelect && otherSelect !== profileSelect) otherSelect.value = profileId;
+            }
+            if (tab.termFitAddon) tab.termFitAddon.fit();
+          });
+        }
+
         this._initTermInstance(tab);
 
         // Reconnect button
@@ -225,6 +255,8 @@ const TabManager = {
 
     // Cleanup terminal resources — kill the claude process then close
     if (tab.type === 'terminal' || tab.type === 'terminal-auth') {
+      tab._manualClose = true;
+      clearTimeout(tab._reconnectTimer);
       if (tab.termWs && tab.termWs.readyState === WebSocket.OPEN) {
         tab.termWs.send(JSON.stringify({ type: 'kill' }));
       }
@@ -235,6 +267,7 @@ const TabManager = {
     }
 
     this.tabs.splice(idx, 1);
+    this._saveTabs();
 
     // Switch to neighbor or dashboard
     if (this.activeTabId === tabId) {
@@ -258,23 +291,11 @@ const TabManager = {
 
     const termEl = document.getElementById(`term-${tab.id}`);
 
+    const profile = TerminalProfiles.getActiveProfile();
     tab.termInstance = new Terminal({
-      theme: {
-        background: '#0d1117',
-        foreground: '#e6edf3',
-        cursor: '#58a6ff',
-        selectionBackground: '#264f78',
-        black: '#484f58',
-        red: '#ff7b72',
-        green: '#3fb950',
-        yellow: '#d29922',
-        blue: '#58a6ff',
-        magenta: '#bc8cff',
-        cyan: '#39d2c0',
-        white: '#b1bac4',
-      },
-      fontSize: 14,
-      fontFamily: "'SF Mono', 'Menlo', 'Monaco', monospace",
+      theme: profile.theme,
+      fontSize: profile.fontSize,
+      fontFamily: profile.fontFamily,
       cursorBlink: true,
       scrollback: 10000,
     });
@@ -403,7 +424,18 @@ const TabManager = {
       } catch {}
     };
 
-    tab.termWs.onclose = () => this._setTermStatus(tab, false);
+    tab.termWs.onclose = () => {
+      this._setTermStatus(tab, false);
+      // Auto-reconnect after 2 seconds if tab still exists and wasn't manually closed
+      if (this.tabs.includes(tab) && !tab._manualClose) {
+        clearTimeout(tab._reconnectTimer);
+        tab._reconnectTimer = setTimeout(() => {
+          if (this.tabs.includes(tab) && (!tab.termWs || tab.termWs.readyState !== WebSocket.OPEN)) {
+            this._connectTermWS(tab);
+          }
+        }, 2000);
+      }
+    };
     tab.termWs.onerror = () => this._setTermStatus(tab, false);
   },
 
@@ -454,24 +486,12 @@ const TabManager = {
     if (typeof Terminal === 'undefined') return;
 
     const termEl = document.getElementById(`term-${tab.id}`);
+    const profile = TerminalProfiles.getActiveProfile();
 
     tab.termInstance = new Terminal({
-      theme: {
-        background: '#0d1117',
-        foreground: '#e6edf3',
-        cursor: '#58a6ff',
-        selectionBackground: '#264f78',
-        black: '#484f58',
-        red: '#ff7b72',
-        green: '#3fb950',
-        yellow: '#d29922',
-        blue: '#58a6ff',
-        magenta: '#bc8cff',
-        cyan: '#39d2c0',
-        white: '#b1bac4',
-      },
-      fontSize: 14,
-      fontFamily: "'SF Mono', 'Menlo', 'Monaco', monospace",
+      theme: profile.theme,
+      fontSize: profile.fontSize,
+      fontFamily: profile.fontFamily,
       cursorBlink: true,
       scrollback: 5000,
     });
@@ -529,6 +549,41 @@ const TabManager = {
     };
     window.addEventListener('resize', resizeHandler);
     tab._resizeHandler = resizeHandler;
+  },
+
+  /** Persist open tabs to localStorage */
+  _saveTabs() {
+    const tabState = this.tabs
+      .filter(t => t.type === 'terminal' && t.cwd)
+      .map(t => ({
+        title: t.title,
+        cwd: t.cwd,
+        projectDirName: t.projectDirName || null,
+        claudeSessionId: t.claudeSessionId || null,
+      }));
+    localStorage.setItem('openTabs', JSON.stringify(tabState));
+    localStorage.setItem('activeTabIndex', String(
+      this.tabs.findIndex(t => t.id === this.activeTabId)
+    ));
+  },
+
+  /** Restore tabs from localStorage on app launch */
+  _restoreTabs() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('openTabs') || '[]');
+      const activeIdx = parseInt(localStorage.getItem('activeTabIndex') || '0', 10);
+      if (saved.length === 0) return;
+
+      for (const t of saved) {
+        this.openTerminal(t.title, t.cwd, t.claudeSessionId, t.projectDirName);
+      }
+
+      // Activate the previously active tab
+      const idx = Math.min(activeIdx, this.tabs.length - 1);
+      if (idx >= 0 && this.tabs[idx]) {
+        this.activateTab(this.tabs[idx].id);
+      }
+    } catch { /* ignore corrupt data */ }
   },
 
   /** Check if any tabs are open */

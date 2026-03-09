@@ -36,7 +36,8 @@
       "main.js",
       "preload.js",
       "backend/**/*",
-      "frontend/**/*"
+      "frontend/**/*",
+      "node_modules/**/*"
     ]
   }
 }

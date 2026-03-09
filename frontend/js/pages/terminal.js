@@ -244,6 +244,15 @@ const TerminalPage = {
 
     this.ws.onclose = () => {
       this.setStatus(false);
+      // Auto-reconnect after 2 seconds
+      if (this._currentCwd && !this._manualClose) {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = setTimeout(() => {
+          if (this._currentCwd && (!this.ws || this.ws.readyState !== WebSocket.OPEN)) {
+            this._connectWS(this._currentCwd, this._currentResumeSessionId);
+          }
+        }, 2000);
+      }
     };
 
     this.ws.onerror = () => {
@@ -261,6 +270,8 @@ const TerminalPage = {
   },
 
   cleanup() {
+    this._manualClose = true;
+    clearTimeout(this._reconnectTimer);
     this._currentCwd = null;
     this._currentResumeSessionId = null;
     if (this.ws) {

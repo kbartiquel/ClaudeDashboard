@@ -73,6 +73,28 @@
   color: var(--text-primary);
 }
 
+/* ---- Terminal Profile Selector ---- */
+.terminal-profile-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 3px 6px;
+  outline: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.terminal-profile-select:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.terminal-profile-select:focus {
+  border-color: var(--accent);
+}
+
 .terminal-sync-btn {
   padding: 3px 9px;
   font-size: 11px;

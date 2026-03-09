@@ -191,7 +191,22 @@ function createServer() {
       const resumeSessionId = url.searchParams.get('resume') || null;
       terminal.createSession(ws, projectPath, resumeSessionId);
     }
+
+    // Heartbeat — send ping every 15s to keep connection alive
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
   });
+
+  // Ping all clients every 15 seconds, terminate dead connections
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) return ws.terminate();
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 15000);
+
+  wss.on('close', () => clearInterval(heartbeatInterval));
 
   return server;
 }
