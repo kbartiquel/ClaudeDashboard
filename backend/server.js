@@ -6,6 +6,7 @@ const WebSocket = require('ws');
 const claudeData = require('./claude-data');
 const config = require('./config');
 const terminal = require('./terminal');
+const memoryGenerator = require('./memory-generator');
 
 function createServer() {
   const app = express();
@@ -58,6 +59,36 @@ function createServer() {
       const dirName = decodeURIComponent(req.params.id);
       const memory = claudeData.getProjectMemory(dirName);
       res.json({ content: memory });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Check if CLAUDE.md exists for a project
+  app.get('/api/projects/:id/claude-md', (req, res) => {
+    try {
+      const dirName = decodeURIComponent(req.params.id);
+      const content = memoryGenerator.readClaudeMd(dirName);
+      res.json({ exists: content !== null, content: content || '' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Generate or update CLAUDE.md from session history via Claude API
+  app.post('/api/projects/:id/generate-memory', async (req, res) => {
+    try {
+      const dirName = decodeURIComponent(req.params.id);
+      const { merge = false } = req.body;
+
+      const projects = claudeData.enumerateProjects();
+      const project = projects.find(p => p.dirName === dirName);
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+
+      const content = await memoryGenerator.generateMemory(dirName, project.name, merge);
+      memoryGenerator.writeClaudeMd(dirName, content);
+
+      res.json({ success: true, content });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

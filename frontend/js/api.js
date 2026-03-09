@@ -47,4 +47,12 @@ const API = {
   renameConversation(pid, sid, name) { return this.put(`/api/conversations/${encodeURIComponent(pid)}/${sid}/name`, { name }); },
   syncMemory(pid) { return fetch(`/api/projects/${encodeURIComponent(pid)}/sync-memory`, { method: 'POST' }).then(r => r.json()); },
   account()         { return this.get('/api/account'); },
+  getClaudeMd(pid) { return this.get(`/api/projects/${encodeURIComponent(pid)}/claude-md`); },
+  generateMemory(pid, merge = false) {
+    return fetch(`/api/projects/${encodeURIComponent(pid)}/generate-memory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ merge }),
+    }).then(r => r.json());
+  },
 };
