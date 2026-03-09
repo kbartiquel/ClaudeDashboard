@@ -142,6 +142,7 @@ const TabManager = {
               ${syncBtn}
               <span class="dot disconnected" id="dot-${tab.id}"></span>
               <span id="status-${tab.id}">Connecting...</span>
+              <button class="btn btn-sm" id="reconnect-btn-${tab.id}" style="display:none;margin-left:10px;">Reconnect</button>
             </div>
           </div>
           <div class="terminal-el" id="term-${tab.id}"></div>
@@ -174,6 +175,12 @@ const TabManager = {
         }
 
         this._initTermInstance(tab);
+
+        // Reconnect button
+        const reconnectBtn = document.getElementById(`reconnect-btn-${tab.id}`);
+        if (reconnectBtn) {
+          reconnectBtn.addEventListener('click', () => this._connectTermWS(tab));
+        }
       }
 
       tab.el.style.display = 'flex';
@@ -261,38 +268,7 @@ const TabManager = {
     tab.termInstance.open(termEl);
     tab.termFitAddon.fit();
 
-    // WebSocket
-    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let wsUrl = `${wsProtocol}//${location.host}/ws/terminal?cwd=${encodeURIComponent(tab.cwd)}`;
-    if (tab.resumeSessionId) {
-      wsUrl += `&resume=${encodeURIComponent(tab.resumeSessionId)}`;
-    }
-
-    tab.termWs = new WebSocket(wsUrl);
-
-    tab.termWs.onopen = () => {
-      this._setTermStatus(tab, true);
-      tab.termWs.send(JSON.stringify({
-        type: 'resize',
-        cols: tab.termInstance.cols,
-        rows: tab.termInstance.rows,
-      }));
-    };
-
-    tab.termWs.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data);
-        if (msg.type === 'output') {
-          tab.termInstance.write(msg.data);
-        } else if (msg.type === 'exit') {
-          this._setTermStatus(tab, false);
-          tab.termInstance.write('\r\n\x1b[33m[Process exited]\x1b[0m\r\n');
-        }
-      } catch {}
-    };
-
-    tab.termWs.onclose = () => this._setTermStatus(tab, false);
-    tab.termWs.onerror = () => this._setTermStatus(tab, false);
+    this._connectTermWS(tab);
 
     // Input
     tab.termInstance.onData((data) => {
@@ -362,11 +338,59 @@ const TabManager = {
     tab._resizeHandler = resizeHandler;
   },
 
+  _connectTermWS(tab) {
+    // Close existing ws cleanly before reconnecting
+    if (tab.termWs) {
+      tab.termWs.onclose = null;
+      tab.termWs.onerror = null;
+      tab.termWs.close();
+      tab.termWs = null;
+    }
+
+    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let wsUrl = `${wsProtocol}//${location.host}/ws/terminal?cwd=${encodeURIComponent(tab.cwd)}`;
+    if (tab.resumeSessionId) {
+      wsUrl += `&resume=${encodeURIComponent(tab.resumeSessionId)}`;
+    }
+
+    tab.termWs = new WebSocket(wsUrl);
+
+    tab.termWs.onopen = () => {
+      this._setTermStatus(tab, true);
+      tab.termWs.send(JSON.stringify({
+        type: 'resize',
+        cols: tab.termInstance.cols,
+        rows: tab.termInstance.rows,
+      }));
+    };
+
+    tab.termWs.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === 'output') {
+          tab.termInstance.write(msg.data);
+        } else if (msg.type === 'replay') {
+          // Reattached to existing pty — clear and restore buffered output
+          tab.termInstance.clear();
+          tab.termInstance.write(msg.data);
+        } else if (msg.type === 'exit') {
+          this._setTermStatus(tab, false);
+          tab.termInstance.write('\r\n\x1b[33m[Process exited]\x1b[0m\r\n');
+        }
+      } catch {}
+    };
+
+    tab.termWs.onclose = () => this._setTermStatus(tab, false);
+    tab.termWs.onerror = () => this._setTermStatus(tab, false);
+  },
+
   _setTermStatus(tab, connected) {
     const dot = document.getElementById(`dot-${tab.id}`);
     const text = document.getElementById(`status-${tab.id}`);
+    const reconnectBtn = document.getElementById(`reconnect-btn-${tab.id}`);
     if (dot) dot.className = connected ? 'dot' : 'dot disconnected';
     if (text) text.textContent = connected ? 'Connected' : 'Disconnected';
+    if (reconnectBtn) reconnectBtn.style.display = connected ? 'none' : 'inline-block';
   },
 
   /** Check if any tabs are open */
