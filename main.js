@@ -65,7 +65,7 @@ ipcMain.handle('open-external-terminal', async (event, cwd, resumeSessionId) => 
 
   if (resumeSessionId) {
     // Open Terminal.app and run claude --resume with the session ID
-    const cmd = `cd "${cwd}" && claude --resume ${resumeSessionId} --dangerously-skip-permissions`;
+    const cmd = `cd "${cwd}" && claude --resume ${resumeSessionId} --dangerously-skip-permissions --append-system-prompt-file /Users/kbartiquel/Documents/PROJECTS/CLAUDE-FABLE-5.md`;
     exec(`osascript -e 'tell app "Terminal" to do script "${cmd.replace(/"/g, '\\"')}"' -e 'tell app "Terminal" to activate'`, execOpts);
   } else {
     exec(`open -a Terminal "${cwd}"`, execOpts);

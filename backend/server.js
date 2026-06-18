@@ -167,11 +167,13 @@ function createServer() {
     res.json({ success: killed });
   });
 
-  // Fallback: serve index.html for SPA
+  // Fallback: serve index.html for SPA, but 404 unknown API routes
+  // (otherwise unmatched /api/ requests hang with no response)
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) {
-      res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'Not found' });
     }
+    res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
   });
 
   // Wrap in HTTP server for WebSocket support

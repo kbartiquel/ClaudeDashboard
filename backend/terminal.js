@@ -5,6 +5,10 @@ const fs = require('fs');
 // Track active sessions: id -> { pty, ws, projectPath, claudeSessionId, createdAt, outputBuffer, outputBufferSize }
 const activeSessions = new Map();
 
+// Set during app shutdown so onExit handlers don't overwrite the saved
+// resume state with an empty list as each pty is killed.
+let isQuitting = false;
+
 // Track sessions that were running when app closed (for resume)
 const SESSION_STATE_FILE = path.join(__dirname, '..', '.terminal-sessions.json');
 
@@ -171,7 +175,7 @@ function createSession(ws, projectPath, resumeSessionId = null) {
   const pty = getPty();
   const id = generateId();
 
-  const args = ['--dangerously-skip-permissions'];
+  const args = ['--dangerously-skip-permissions', '--append-system-prompt-file', '/Users/kbartiquel/Documents/PROJECTS/CLAUDE-FABLE-5.md'];
   if (resumeSessionId) {
     args.unshift('--resume', resumeSessionId);
   }
@@ -242,7 +246,7 @@ function createSession(ws, projectPath, resumeSessionId = null) {
 
   ptyProcess.onExit(({ exitCode }) => {
     activeSessions.delete(id);
-    saveSessionState();
+    if (!isQuitting) saveSessionState();
     if (session.ws && session.ws.readyState === 1) {
       session.ws.send(JSON.stringify({ type: 'exit', code: exitCode }));
     }
@@ -316,6 +320,10 @@ function killSession(id) {
  * Kill all active sessions (called on app quit)
  */
 function killAll() {
+  // Persist current sessions first so they can be resumed next launch,
+  // then guard against onExit handlers wiping that state as ptys die.
+  saveSessionState();
+  isQuitting = true;
   for (const [, session] of activeSessions) {
     try {
       session.pty.kill();
