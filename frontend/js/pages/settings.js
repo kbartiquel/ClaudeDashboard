@@ -22,6 +22,23 @@ const SettingsPage = {
         </div>
       </div>
       <div class="section" style="margin-top:32px;">
+        <div class="section-title">Appended System Prompt</div>
+        <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px;">
+          A file appended to Claude's default prompt for every session this app launches.
+          Leave empty for fastest startup &mdash; large files add noticeable latency to the
+          first message of each session. Default behavior (tool use, coding) is preserved either way.
+        </p>
+        <div class="form-group">
+          <label>System prompt file (absolute path, optional)</label>
+          <input type="text" id="append-prompt-file" placeholder="/path/to/PROMPT.md" />
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="btn btn-primary" id="save-prompt-btn">Save</button>
+          <button class="btn" id="browse-prompt-btn">Browse File...</button>
+          <button class="btn btn-danger" id="clear-prompt-btn">Disable</button>
+        </div>
+      </div>
+      <div class="section" style="margin-top:32px;">
         <div class="section-title">Claude Projects Directory</div>
         <div class="form-group">
           <label>Path to Claude's projects directory</label>
@@ -36,7 +53,28 @@ const SettingsPage = {
       this.currentSettings = settings;
 
       document.getElementById('claude-projects-dir').value = settings.claudeProjectsDir;
+      document.getElementById('append-prompt-file').value = settings.appendSystemPromptFile || '';
       this.renderDirsList(settings.scanDirectories || []);
+
+      // Appended system prompt controls
+      document.getElementById('save-prompt-btn').addEventListener('click', () => {
+        this.savePromptFile(document.getElementById('append-prompt-file').value.trim());
+      });
+      document.getElementById('clear-prompt-btn').addEventListener('click', () => {
+        document.getElementById('append-prompt-file').value = '';
+        this.savePromptFile('');
+      });
+      document.getElementById('browse-prompt-btn').addEventListener('click', async () => {
+        if (window.electronAPI && window.electronAPI.pickFile) {
+          const file = await window.electronAPI.pickFile();
+          if (file) {
+            document.getElementById('append-prompt-file').value = file;
+            this.savePromptFile(file);
+          }
+        } else {
+          alert('File picker unavailable; paste the path manually and click Save.');
+        }
+      });
 
       // Browse folder button for adding scan directories
       document.getElementById('browse-scan-dir-btn').addEventListener('click', async () => {
@@ -88,6 +126,19 @@ const SettingsPage = {
     const dirs = [...(this.currentSettings.scanDirectories || [])];
     dirs.splice(index, 1);
     await this.saveDirs(dirs);
+  },
+
+  async savePromptFile(filePath) {
+    try {
+      const updated = await API.updateSettings({ appendSystemPromptFile: filePath });
+      this.currentSettings = updated;
+      const status = document.getElementById('settings-status');
+      status.textContent = filePath ? 'Settings saved!' : 'Appended prompt disabled — sessions will start faster.';
+      status.style.display = 'block';
+      setTimeout(() => { status.style.display = 'none'; status.textContent = 'Settings saved!'; }, 2500);
+    } catch (err) {
+      alert('Failed to save: ' + err.message);
+    }
   },
 
   async saveDirs(dirs) {

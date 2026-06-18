@@ -15,7 +15,12 @@ const ConversationPage = {
         <h1 id="conv-title">Conversation</h1>
         <p class="subtitle" id="conv-meta"></p>
       </div>
-      <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;">
+      <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <select class="btn" id="resume-prompt-mode" title="System prompt used when resuming this session" style="cursor:pointer;">
+          <option value="fable">Fable 5 (append)</option>
+          <option value="replace">Fable 5 (replace)</option>
+          <option value="default">Default (plain)</option>
+        </select>
         <button class="btn btn-primary" id="resume-conv-btn">&#9002; Resume in Terminal</button>
         <button class="btn" id="resume-ext-btn">&#8599; Resume in External Terminal</button>
         <button class="btn" id="rename-conv-btn">&#9998; Rename</button>
@@ -50,18 +55,23 @@ const ConversationPage = {
       document.getElementById('conv-meta').textContent =
         `${data.messages.length} messages | Session: ${sessionId.slice(0, 8)}...`;
 
+      const promptMode = () => {
+        const sel = document.getElementById('resume-prompt-mode');
+        return sel ? sel.value : 'fable';
+      };
+
       // Resume in dashboard terminal tab
       document.getElementById('resume-conv-btn').addEventListener('click', () => {
         const cwd = data.cwd || '';
         const name = cwd.split('/').filter(Boolean).pop() || 'Session';
-        TabManager.openTerminal(name + ' (resume)', cwd, sessionId, projectId);
+        TabManager.openTerminal(name + ' (resume)', cwd, sessionId, projectId, promptMode());
       });
 
       // Resume in external Terminal.app
       document.getElementById('resume-ext-btn').addEventListener('click', () => {
         const cwd = data.cwd || '';
         if (window.electronAPI && window.electronAPI.openExternalTerminal) {
-          window.electronAPI.openExternalTerminal(cwd, sessionId);
+          window.electronAPI.openExternalTerminal(cwd, sessionId, promptMode());
         }
       });
 

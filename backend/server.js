@@ -191,7 +191,8 @@ function createServer() {
     } else {
       const projectPath = url.searchParams.get('cwd') || process.env.HOME;
       const resumeSessionId = url.searchParams.get('resume') || null;
-      terminal.createSession(ws, projectPath, resumeSessionId);
+      const promptMode = url.searchParams.get('prompt') || null;
+      terminal.createSession(ws, projectPath, resumeSessionId, promptMode);
     }
 
     // Heartbeat — send ping every 15s to keep connection alive

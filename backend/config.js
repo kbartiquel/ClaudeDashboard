@@ -16,6 +16,9 @@ const DEFAULTS = {
   claudeProjectsDir: path.join(os.homedir(), '.claude', 'projects'),
   claudeHistoryFile: path.join(os.homedir(), '.claude', 'history.jsonl'),
   theme: 'dark',
+  // Optional file appended to Claude's default system prompt for in-app
+  // sessions. Empty string = none (fastest). Larger files add latency.
+  appendSystemPromptFile: '/Users/kbartiquel/Documents/PROJECTS/CLAUDE-FABLE-5.md',
 };
 
 function load() {

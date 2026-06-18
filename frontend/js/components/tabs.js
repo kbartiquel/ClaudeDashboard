@@ -78,12 +78,13 @@ const TabManager = {
   },
 
   /** Open a terminal tab for a project */
-  openTerminal(title, cwd, resumeSessionId, projectDirName) {
+  openTerminal(title, cwd, resumeSessionId, projectDirName, promptMode) {
     const id = 'tab-' + (++this._idCounter);
     const tab = {
       id, title, type: 'terminal', cwd,
       resumeSessionId: resumeSessionId || null,
       projectDirName: projectDirName || null,
+      promptMode: promptMode || null,
       termInstance: null, termWs: null, termFitAddon: null, el: null,
     };
     this.tabs.push(tab);
@@ -397,6 +398,9 @@ const TabManager = {
     if (tab.resumeSessionId) {
       wsUrl += `&resume=${encodeURIComponent(tab.resumeSessionId)}`;
     }
+    if (tab.promptMode) {
+      wsUrl += `&prompt=${encodeURIComponent(tab.promptMode)}`;
+    }
 
     tab.termWs = new WebSocket(wsUrl);
 
@@ -564,6 +568,7 @@ const TabManager = {
         cwd: t.cwd,
         projectDirName: t.projectDirName || null,
         claudeSessionId: t.claudeSessionId || null,
+        promptMode: t.promptMode || null,
       }));
     localStorage.setItem('openTabs', JSON.stringify(tabState));
     localStorage.setItem('activeTabIndex', String(
@@ -580,7 +585,7 @@ const TabManager = {
 
       for (const t of saved) {
         // Pass claudeSessionId to resume the previous Claude session
-        this.openTerminal(t.title, t.cwd, t.claudeSessionId || null, t.projectDirName);
+        this.openTerminal(t.title, t.cwd, t.claudeSessionId || null, t.projectDirName, t.promptMode || null);
       }
 
       // Activate the previously active tab

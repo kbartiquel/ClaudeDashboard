@@ -1,6 +1,7 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
+const config = require('./config');
 
 // Track active sessions: id -> { pty, ws, projectPath, claudeSessionId, createdAt, outputBuffer, outputBufferSize }
 const activeSessions = new Map();
@@ -162,7 +163,7 @@ function reattachSession(session, ws) {
  * Create a new terminal session with WebSocket bridge.
  * If a session for the same projectPath already exists, reattach to it.
  */
-function createSession(ws, projectPath, resumeSessionId = null) {
+function createSession(ws, projectPath, resumeSessionId = null, promptMode = null) {
   // Reattach if a live session exists for this path (and not a forced resume of a different session)
   if (!resumeSessionId) {
     const existing = findSessionByPath(projectPath);
@@ -175,7 +176,18 @@ function createSession(ws, projectPath, resumeSessionId = null) {
   const pty = getPty();
   const id = generateId();
 
-  const args = ['--dangerously-skip-permissions', '--append-system-prompt-file', '/Users/kbartiquel/Documents/PROJECTS/CLAUDE-FABLE-5.md'];
+  const args = ['--dangerously-skip-permissions'];
+  const promptFile = config.load().appendSystemPromptFile;
+  // promptMode: 'fable' -> append the prompt file on top of the default;
+  // 'replace' -> use it as the whole system prompt; 'default' -> plain;
+  // null (standalone/restored sessions) -> fall back to the config default (append).
+  if (promptFile && fs.existsSync(promptFile)) {
+    if (promptMode === 'replace') {
+      args.push('--system-prompt-file', promptFile);
+    } else if (promptMode === 'fable' || promptMode == null) {
+      args.push('--append-system-prompt-file', promptFile);
+    }
+  }
   if (resumeSessionId) {
     args.unshift('--resume', resumeSessionId);
   }

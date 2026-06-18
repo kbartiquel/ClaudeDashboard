@@ -1,7 +1,19 @@
 const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { createServer } = require('./backend/server');
 const terminal = require('./backend/terminal');
+const config = require('./backend/config');
+
+// Wrap a string in single quotes, safe for a POSIX shell.
+function shellQuote(s) {
+  return `'${String(s).replace(/'/g, `'\\''`)}'`;
+}
+
+// Escape a string for embedding inside an AppleScript double-quoted literal.
+function escapeAppleScript(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
 
 let mainWindow;
 let server;
@@ -51,8 +63,8 @@ function createWindow() {
   });
 }
 
-ipcMain.handle('open-external-terminal', async (event, cwd, resumeSessionId) => {
-  const { exec } = require('child_process');
+ipcMain.handle('open-external-terminal', async (event, cwd, resumeSessionId, promptMode) => {
+  const { execFile } = require('child_process');
   // Strip Claude env vars so the external terminal doesn't detect a nested session
   const cleanEnv = { ...process.env };
   delete cleanEnv.CLAUDECODE;
@@ -64,11 +76,26 @@ ipcMain.handle('open-external-terminal', async (event, cwd, resumeSessionId) => 
   const execOpts = { env: cleanEnv };
 
   if (resumeSessionId) {
-    // Open Terminal.app and run claude --resume with the session ID
-    const cmd = `cd "${cwd}" && claude --resume ${resumeSessionId} --dangerously-skip-permissions --append-system-prompt-file /Users/kbartiquel/Documents/PROJECTS/CLAUDE-FABLE-5.md`;
-    exec(`osascript -e 'tell app "Terminal" to do script "${cmd.replace(/"/g, '\\"')}"' -e 'tell app "Terminal" to activate'`, execOpts);
+    // Session IDs are UUID-like; reject anything else so it can't be used
+    // to inject extra shell/AppleScript.
+    if (!/^[A-Za-z0-9-]+$/.test(resumeSessionId)) {
+      throw new Error('Invalid session id');
+    }
+    let claudeCmd = `claude --resume ${resumeSessionId} --dangerously-skip-permissions`;
+    const promptFile = config.load().appendSystemPromptFile;
+    if (promptFile && fs.existsSync(promptFile)) {
+      if (promptMode === 'replace') {
+        claudeCmd += ` --system-prompt-file ${shellQuote(promptFile)}`;
+      } else if (promptMode === 'fable' || promptMode == null) {
+        claudeCmd += ` --append-system-prompt-file ${shellQuote(promptFile)}`;
+      }
+    }
+    const shellCmd = `cd ${shellQuote(cwd)} && ${claudeCmd}`;
+    const appleScript = `tell app "Terminal" to do script "${escapeAppleScript(shellCmd)}"`;
+    // execFile (no shell) + AppleScript escaping keeps cwd from breaking out.
+    execFile('osascript', ['-e', appleScript, '-e', 'tell app "Terminal" to activate'], execOpts);
   } else {
-    exec(`open -a Terminal "${cwd}"`, execOpts);
+    execFile('open', ['-a', 'Terminal', cwd], execOpts);
   }
   return true;
 });
@@ -98,6 +125,16 @@ ipcMain.handle('pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory', 'createDirectory'],
     title: 'Select Project Directory',
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('pick-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    title: 'Select System Prompt File',
+    filters: [{ name: 'Text', extensions: ['md', 'txt'] }, { name: 'All Files', extensions: ['*'] }],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
