@@ -121,7 +121,11 @@ function enumerateProjects(forceRefresh = false) {
     const dirPath = path.join(projectsDir, dirName);
     const jsonlFiles = fs.readdirSync(dirPath).filter(f => f.endsWith('.jsonl'));
 
-    if (jsonlFiles.length === 0) continue;
+    // Projects whose transcripts were cleaned up by Claude Code's retention
+    // may still have memory/ or sessions-index.json — keep them visible.
+    const hasMemory = fs.existsSync(path.join(dirPath, 'memory'));
+    const hasIndex = fs.existsSync(path.join(dirPath, 'sessions-index.json'));
+    if (jsonlFiles.length === 0 && !hasMemory && !hasIndex) continue;
 
     // Try all JSONL files to find cwd, fallback to decoding dir name
     let cwd = findCwdInDir(dirPath, jsonlFiles);
@@ -135,11 +139,15 @@ function enumerateProjects(forceRefresh = false) {
       if (!inScanDir) continue;
     }
 
-    // Get last activity time from most recent JSONL file
+    // Get last activity time from most recent JSONL file (or the dir itself
+    // when no transcripts remain)
     let lastActivity = 0;
     for (const f of jsonlFiles) {
       const stat = fs.statSync(path.join(dirPath, f));
       if (stat.mtimeMs > lastActivity) lastActivity = stat.mtimeMs;
+    }
+    if (lastActivity === 0) {
+      lastActivity = fs.statSync(dirPath).mtimeMs;
     }
 
     // Derive a friendly name from cwd
@@ -222,6 +230,32 @@ function getProjectConversations(dirName) {
       createdAt: firstEntry.timestamp,
       lastActivity: stat.mtime.toISOString(),
     });
+  }
+
+  // Sessions whose transcripts were cleaned up by Claude Code's retention may
+  // still be listed in sessions-index.json — surface them as archived entries.
+  const indexFile = path.join(dirPath, 'sessions-index.json');
+  if (fs.existsSync(indexFile)) {
+    try {
+      const index = JSON.parse(fs.readFileSync(indexFile, 'utf-8'));
+      const liveIds = new Set(conversations.map(c => c.sessionId));
+      for (const e of index.entries || []) {
+        if (!e.sessionId || liveIds.has(e.sessionId)) continue;
+        if (e.isSidechain) continue;
+        if (fs.existsSync(path.join(dirPath, `${e.sessionId}.jsonl`))) continue;
+        conversations.push({
+          sessionId: e.sessionId,
+          cwd: e.projectPath || null,
+          gitBranch: e.gitBranch || null,
+          customName: config.getName(dirName, e.sessionId) || null,
+          firstMessage: (e.summary || e.firstPrompt || '(no message)') + ' — [transcript expired]',
+          messageCount: e.messageCount || 0,
+          createdAt: e.created,
+          lastActivity: e.modified || e.created,
+          archived: true,
+        });
+      }
+    } catch { /* ignore malformed index */ }
   }
 
   conversations.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
